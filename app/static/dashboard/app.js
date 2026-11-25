@@ -169,6 +169,19 @@ function time(value) {
   return d.toLocaleString("zh-CN", { hour12: false });
 }
 
+const signalPublicationFormatter = new Intl.DateTimeFormat("zh-CN", {
+  timeZone: "Asia/Shanghai", hourCycle: "h23",
+  year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit", second: "2-digit",
+});
+
+function signalPublicationTime(value) {
+  if (!value) return "-";
+  const timestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(value) ? value + "Z" : value;
+  const date = new Date(timestamp);
+  return Number.isNaN(date.getTime()) ? "-" : signalPublicationFormatter.format(date);
+}
+
 function levelBadge(level, warning = null) {
   const value = String(level || "unknown");
   if (value === "S") {
@@ -829,7 +842,7 @@ function signalCards(rows, includeMatch) {
         <div><dt>结算</dt><dd>${zhResult(s.direction_match_result)}</dd></div>
       </dl>
       ${s.current_notice ? `<details class="signal-card-notice"><summary>补充说明</summary><p>${escapeHtml(s.current_notice)}</p></details>` : ""}
-      <footer class="signal-card-footer"><span>${time(s.created_at)}</span><a href="#signal/${s.id}" aria-label="查看${escapeHtml(s.player?.name || '')}的信号详情">详情 <span aria-hidden="true">›</span></a></footer>
+      <footer class="signal-card-footer"><span>北京时间 ${signalPublicationTime(s.created_at)}</span><a href="#signal/${s.id}" aria-label="查看${escapeHtml(s.player?.name || '')}的信号详情">详情 <span aria-hidden="true">›</span></a></footer>
     </article>`).join("")}</div>`;
 }
 
@@ -844,12 +857,12 @@ function signalsTable(signals, includeMatch = false, options = {}) {
     <div class="table-panel signals-table-panel">
       <table class="signals-table">
         <thead>
-          <tr><th>发布时间</th><th>信号</th>${includeMatch ? "<th>比赛</th><th>赛事级别</th><th>巡回赛</th>" : ""}<th>比赛状态</th><th>固定方向</th><th>触发趋势</th><th>触发风险</th><th>最终结算</th><th></th></tr>
+          <tr><th>发布时间（北京时间）</th><th>信号</th>${includeMatch ? "<th>比赛</th><th>赛事级别</th><th>巡回赛</th>" : ""}<th>比赛状态</th><th>固定方向</th><th>触发趋势</th><th>触发风险</th><th>最终结算</th><th></th></tr>
         </thead>
         <tbody>
           ${rows.map((s) => `
             <tr>
-              <td class="signal-time" data-label="发布时间">${time(s.created_at)}</td>
+              <td class="signal-time" data-label="发布时间（北京时间）">${signalPublicationTime(s.created_at)}</td>
               <td data-label="信号">${formalSignalBadge(s)}</td>
               ${includeMatch ? `<td data-label="比赛"><a class="link-button" href="#match/${s.match_id}" title="${escapeHtml(s.tournament || "")}">比赛 ${s.match_id}</a></td><td data-label="赛事级别">${tournamentLevelBadge(s.tournament_level)}</td><td data-label="巡回赛">${tournamentNameCell(s.tournament, s.competition_stage, s.round)}</td>` : ""}
               <td data-label="比赛状态">${statusBadge(s.match_status)}</td>
@@ -1106,7 +1119,7 @@ async function renderSignalDetail(id) {
   const data = await api(`/web/api/signals/${id}`);
   const s = data.signal;
   const match = data.match;
-  setHeader(`信号 ${id}`, `${matchName(match)} · ${playerName(s.player)}`);
+  setHeader(`信号 ${id}`, `${matchName(match)} · ${playerName(s.player)} · 北京时间 ${signalPublicationTime(s.created_at)}`);
   view.innerHTML = `
     ${matchDashboard(data, { signal: s })}
     <div class="grid cols-2">

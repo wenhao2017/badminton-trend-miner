@@ -286,7 +286,7 @@ def _signal(db: Session, signal: TrendSignalLog) -> Dict[str, Any]:
         "final_result": signal.final_result,
         "direction_match_result": direction_result,
         "direction_match_won": direction_result == "won_match",
-        "created_at": _dt(signal.created_at),
+        "created_at": _dt(signal.created_at, naive_as_utc=True),
     }
 
 
