@@ -90,3 +90,43 @@ def test_slack_route_and_telegram_fallback_are_recorded(configured, monkeypatch,
         service.telegram.send_message.assert_not_called()
     else:
         service.telegram.send_message.assert_called_once_with("compact signal")
+
+
+def test_multiple_slack_webhooks_receive_same_payload(configured, monkeypatch):
+    url1 = "https://hooks.slack.com/services/T1/B1/secret1"
+    url2 = "https://hooks.slack.com/services/T2/B2/secret2"
+    monkeypatch.setattr(settings, "SLACK_WEBHOOK_URL", f" {url1} , {url2} , {url1} ")
+    client = mock_response(monkeypatch)
+    assert slack.SlackSender().send_message("🏸 BWF 信号提醒")
+    assert client.post.call_count == 2
+    first_call, second_call = client.post.call_args_list
+    assert first_call.args[0] == url1
+    assert second_call.args[0] == url2
+    assert first_call.kwargs["json"] == second_call.kwargs["json"]
+
+
+def test_multiple_slack_webhooks_continue_when_one_fails_without_leaking_secret(configured, monkeypatch):
+    url1 = "https://hooks.slack.com/services/T1/B1/secret1"
+    url2 = "https://hooks.slack.com/services/T2/B2/secret2"
+    monkeypatch.setattr(settings, "SLACK_WEBHOOK_URL", f"{url1},{url2}")
+    client = mock_response(monkeypatch)
+    client.post.side_effect = [httpx.ConnectError(url1), httpx.Response(200, text="ok")]
+    lines = []
+    sink = slack.logger.add(lambda message: lines.append(str(message)))
+    try:
+        assert slack.SlackSender().send_message("signal")
+    finally:
+        slack.logger.remove(sink)
+    assert client.post.call_count == 2
+    assert "hooks.slack.com" not in "".join(lines)
+    assert "secret1" not in "".join(lines)
+    assert "secret2" not in "".join(lines)
+
+
+def test_mixed_valid_and_invalid_webhooks_sends_to_valid_only(configured, monkeypatch):
+    valid_url = "https://hooks.slack.com/services/T2/B2/secret2"
+    monkeypatch.setattr(settings, "SLACK_WEBHOOK_URL", f"https://evil.example/services/A/B/C,{valid_url}")
+    client = mock_response(monkeypatch)
+    assert slack.SlackSender().send_message("signal")
+    client.post.assert_called_once()
+    assert client.post.call_args.args[0] == valid_url
