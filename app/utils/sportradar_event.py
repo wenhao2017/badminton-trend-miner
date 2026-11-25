@@ -36,9 +36,28 @@ def get_event_tournament(event: dict) -> dict:
 
 def get_event_tournament_level(event: dict) -> str | None:
     competition = get_event_tournament(event)
-    label = str(competition.get("level") or competition.get("name") or "")
-    match = re.search(r"\b(?:super\s*)?(1000|750|500|300|100)\b", label, re.I)
-    return f"Super {match[1]}" if match else None
+    level = str(competition.get("level") or "").strip()
+    tier = re.fullmatch(r"(?:super\s*)?(1000|750|500|300|100)", level, re.I)
+    if tier:
+        return f"Super {tier[1]}"
+    return (tournament_level_label(None, level, None)
+            or tournament_level_label(None, competition.get("name"), competition.get("id")))
+
+
+def tournament_level_label(level: str | None, tournament: str | None,
+                           competition_id: str | None) -> str | None:
+    if level and level.strip():
+        return level.strip()
+    name = tournament or ""
+    tier = re.search(r"\bsuper\s*(1000|750|500|300|100)\b", name, re.I)
+    if tier:
+        return f"Super {tier[1]}"
+    if re.search(r"\bworld tour finals\b", name, re.I):
+        return "World Tour Finals"
+    # This Sportradar competition has explicit Super 300 records in production.
+    if competition_id == "sr:competition:27256":
+        return "Super 300"
+    return None
 
 
 def is_singles_event(event: dict) -> bool:

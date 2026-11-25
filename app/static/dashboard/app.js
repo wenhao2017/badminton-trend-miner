@@ -189,7 +189,7 @@ function tournamentLevelBadge(level) {
   const tiers = {
     super1000: ["Super 1000", "1000"], super750: ["Super 750", "750"],
     super500: ["Super 500", "500"], super300: ["Super 300", "300"],
-    super100: ["Super 100", "100"],
+    super100: ["Super 100", "100"], worldtourfinals: ["世界巡回赛总决赛", "1000"],
   };
   const [label, tier] = tiers[key] || [level || "未标注", "unknown"];
   return `<span class="tournament-tier tier-${tier}">${escapeHtml(String(label))}</span>`;
@@ -506,6 +506,7 @@ function groupMatchesByTournament(matches) {
       });
     }
     const group = groups.get(key);
+    group.tournament_level ||= match.tournament_level;
     group.matches.push(match);
     group.status_counts[match.status || "unknown"] = (group.status_counts[match.status || "unknown"] || 0) + 1;
   });
@@ -656,7 +657,7 @@ function matchDashboardHero(match, latestSnapshots, stats, summary) {
     <section class="match-hero">
       <div class="match-hero-head">
         <div>
-          <div class="eyebrow">${fmt(match.tournament)} · ${zhSurface(match.surface)} · ${roundLabel(match.round)}</div>
+          <div class="eyebrow">${tournamentLevelBadge(match.tournament_level)} ${fmt(match.tournament)} · ${zhSurface(match.surface)} · ${roundLabel(match.round)}</div>
           <h2>${matchNameLinks(match)}</h2>
         </div>
         <div class="hero-status">${zhStatus(match.status)}</div>
@@ -1156,7 +1157,7 @@ async function renderLive() {
               <span class="toggle-icon"><i data-lucide="${collapsed ? "chevron-right" : "chevron-down"}"></i></span>
               <span>
                 <strong>${fmt(group.tournament)}</strong>
-                <small>${zhSurface(group.surface)} · ${fmt(group.tournament_level || "赛事")}</small>
+                <small>${tournamentLevelBadge(group.tournament_level)} · ${zhSurface(group.surface)}</small>
               </span>
               <span class="tournament-counts">
                 <em>${group.matches.length} 场</em>
@@ -1295,7 +1296,7 @@ function renderPlayerHistoricalMatches(matches, pageKey) {
         <tbody>${rows.map((m) => `
           <tr>
             <td>${time(m.match_date)}</td>
-            <td><a class="link-button" href="#match/${m.id}">${fmt(m.tournament)}</a></td>
+            <td>${tournamentLevelBadge(m.tournament_level)} <a class="link-button" href="#match/${m.id}">${fmt(m.tournament)}</a></td>
             <td>${roundLabel(m.round)}</td>
             <td>${zhSurface(m.surface)}</td>
             <td>${playerName(m.opponent)}</td>

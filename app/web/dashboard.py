@@ -42,6 +42,7 @@ from app.services.signal_recommendation import match_direction_result
 from app.services.signal_history_context import player_inactivity_warning
 from app.services.score_display import snapshot_score_before, latest_match_score
 from app.api_clients.sportradar_cache import SportradarCache
+from app.utils.sportradar_event import tournament_level_label
 
 
 router = APIRouter()
@@ -170,7 +171,7 @@ def _match(db: Session, match_id: Optional[int]) -> Optional[Dict[str, Any]]:
         "external_match_id": match.external_match_id,
         "tournament": match.tournament,
         "tournament_id": match.tournament_id,
-        "tournament_level": match.tournament_level,
+        "tournament_level": tournament_level_label(match.tournament_level, match.tournament, match.tournament_id),
         "match_date": _dt(match.match_date, naive_as_utc=True),
         "surface": match.surface,
         "round": match.round,
@@ -270,7 +271,8 @@ def _signal(db: Session, signal: TrendSignalLog) -> Dict[str, Any]:
         "trigger": (signal.reason_json or {}).get("official_s_confirmation"),
         "inactivity_warning": _signal_inactivity_warning(db, signal, match),
         "tournament": match.tournament if match else None,
-        "tournament_level": match.tournament_level if match else None,
+        "tournament_level": (tournament_level_label(match.tournament_level, match.tournament, match.tournament_id)
+                             if match else None),
         "competition_stage": match.competition_stage if match else None,
         "round": match.round if match else None,
         "trend_confidence_score": _round(signal.trend_confidence_score),
@@ -816,7 +818,7 @@ def _player_historical_matches(db: Session, player_id: int, limit: int = 200) ->
                 "id": match.id,
                 "external_match_id": match.external_match_id,
                 "tournament": match.tournament,
-                "tournament_level": match.tournament_level,
+                "tournament_level": tournament_level_label(match.tournament_level, match.tournament, match.tournament_id),
                 "match_date": _dt(match.match_date, naive_as_utc=True),
                 "surface": match.surface,
                 "round": match.round,

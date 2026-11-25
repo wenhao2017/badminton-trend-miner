@@ -17,7 +17,7 @@ from app.services.live_monitor import LiveMonitor
 from app.services.player_profile_builder import PlayerProfileBuilder
 from app.services.score_display import latest_match_score
 from app.services.sportradar_importer import SportradarImporter
-from app.utils.sportradar_event import is_womens_singles_event
+from app.utils.sportradar_event import get_event_tournament_level, is_womens_singles_event
 
 
 def fixture_match(day, event_id=1, target=21, live_rallies=None, winner="home"):
@@ -58,6 +58,16 @@ def fixture_match(day, event_id=1, target=21, live_rallies=None, winner="home"):
     if live_rallies is None:
         status["winner_id"] = sides[winner]
     return {"sport_event": event, "sport_event_status": status, "timeline": points}
+
+
+@pytest.mark.parametrize("competition, expected", [
+    ({"name": "World Tour Finals, WS"}, "World Tour Finals"),
+    ({"id": "sr:competition:27256", "name": "Syed Modi India International, WS"}, "Super 300"),
+    ({"name": "Super 750, WS", "level": "BWF World Tour"}, "Super 750"),
+    ({"name": "International 300, WS"}, None),
+])
+def test_tournament_level_from_sparse_provider_metadata(competition, expected):
+    assert get_event_tournament_level({"sport_event_context": {"competition": competition}}) == expected
 
 
 @pytest.mark.parametrize(("year", "target"), [(2026, 21), (2027, 15)])
