@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>登录 BWF Trend Miner 控制台</title>
+    <link rel="icon" type="image/svg+xml" href="/static/dashboard/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/dashboard/styles.css" />
+    <link rel="stylesheet" href="/static/dashboard/premium.css" />
+  </head>
+  <body class="login-page">
+    <main class="login-shell">
+      <section class="login-panel" aria-labelledby="login-title">
+        <div class="brand login-brand">
+          <div class="brand-mark">BWF</div>
+          <div>
+            <div class="brand-title">Trend Miner</div>
+            <div class="brand-subtitle">Production Console</div>
+          </div>
+        </div>
+        <form class="login-form" method="post" action="/login">
+          <input id="next" name="next" type="hidden" value="/dashboard" />
+          <div>
+            <h1 id="login-title">登录控制台</h1>
+            <p class="login-copy">查看趋势信号、历史同步状态、球员画像、回测结果和运维动作。</p>
+          </div>
+          <label class="login-field">
+            <span>账号</span>
+            <input name="username" autocomplete="username" required autofocus />
+          </label>
+          <label class="login-field">
+            <span>密码</span>
+            <input name="password" type="password" autocomplete="current-password" required />
+          </label>
+          <div id="login-error" class="login-error" hidden>账号或密码不正确。</div>
+          <script>
+            function turnstileReady() {
+              document.querySelector('.login-submit').disabled = false;
+              document.getElementById('verification-error').hidden = true;
+            }
+            function turnstileExpired() {
+              document.querySelector('.login-submit').disabled = true;
+            }
+            function turnstileError() {
+              turnstileExpired();
+              const error = document.getElementById('verification-error');
+              error.textContent = '人机验证暂不可用，请检查网络后刷新重试。';
+              error.hidden = false;
+            }
+          </script>
+          <div id="verification-error" class="login-error" hidden>人机验证失败或已过期，请重新验证后登录。</div>
+          <!-- TURNSTILE_WIDGET -->
+          <button class="action-button primary login-submit" type="submit">登录</button>
+        </form>
+      </section>
+    </main>
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const next = params.get("next") || "/dashboard";
+      document.getElementById("next").value = next.startsWith("/") ? next : "/dashboard";
+      document.getElementById("login-error").hidden = params.get("error") !== "1";
+      document.getElementById("verification-error").hidden = params.get("error") !== "verification";
+    </script>
+  </body>
+</html>

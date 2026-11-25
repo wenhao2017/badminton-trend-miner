@@ -1,0 +1,8 @@
+[Unit]
+Description=Renew the Badminton Dashboard public IP certificate
+After=network.target nginx.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/badminton-certbot/.venv/bin/certbot renew --quiet --cert-name badminton-dashboard-ip --deploy-hook /usr/local/libexec/badminton-certificate-reload
+Nice=10

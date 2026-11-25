@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BWF Trend Miner 控制台</title>
+    <link rel="icon" type="image/svg+xml" href="/static/dashboard/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/dashboard/styles.css?v=20261102-live-score-v2" />
+    <link rel="stylesheet" href="/static/dashboard/premium.css?v=20261031-mobile-polish-v6" />
+    <link rel="stylesheet" href="/static/dashboard/mobile.css?v=20261031-mobile-polish-v6" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">BWF</div>
+          <div>
+            <div class="brand-title">Trend Miner</div>
+            <div class="brand-subtitle">Production Console</div>
+          </div>
+        </div>
+        <nav class="nav">
+          <a href="#overview" data-route="overview"><i data-lucide="layout-dashboard"></i><span>总览</span></a>
+          <a href="#history" data-route="history"><i data-lucide="calendar-days"></i><span>历史同步</span></a>
+          <a href="#signals" data-route="signals"><i data-lucide="bell-ring"></i><span>信号</span></a>
+          <a href="#live" data-route="live"><i data-lucide="activity"></i><span>实时比赛</span></a>
+          <a href="#players" data-route="players"><i data-lucide="users"></i><span>球员</span></a>
+          <a href="#backtests" data-route="backtests"><i data-lucide="chart-no-axes-combined"></i><span>回测</span></a>
+          <a href="#ops" data-route="ops"><i data-lucide="settings"></i><span>运维</span></a>
+        </nav>
+      </aside>
+      <main class="main">
+        <header class="topbar">
+          <div class="topbar-title">
+            <h1 id="page-title">总览</h1>
+            <div id="page-subtitle" class="subtitle">系统状态与近期趋势信号</div>
+          </div>
+          <div class="top-actions" aria-label="控制台操作">
+            <div class="quick-status" title="控制台在线">
+              <span class="status-dot"></span>
+              <span>在线</span>
+            </div>
+            <button id="theme-toggle" class="icon-button theme-pill" title="切换主题" aria-label="切换主题">
+              <i data-lucide="moon"></i>
+              <span data-theme-label>暗色</span>
+            </button>
+            <button id="refresh-btn" class="icon-button icon-only" title="刷新数据" aria-label="刷新数据">
+              <i data-lucide="refresh-cw"></i>
+            </button>
+            <a href="/logout" class="icon-button icon-only logout-button" title="退出登录" aria-label="退出登录">
+              <i data-lucide="log-out"></i>
+            </a>
+          </div>
+        </header>
+        <section id="view" class="view" aria-live="polite"></section>
+      </main>
+    </div>
+    <div id="toast" class="toast" role="status"></div>
+    <script src="/static/dashboard/app.js?v=20261110-auto-window-v1"></script>
+  </body>
+</html>

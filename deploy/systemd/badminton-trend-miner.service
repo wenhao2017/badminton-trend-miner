@@ -1,0 +1,35 @@
+[Unit]
+Description=Badminton Trend Miner
+After=network.target
+
+[Service]
+Type=simple
+User=badminton
+Group=badminton
+WorkingDirectory=/opt/badminton-trend-miner/current
+EnvironmentFile=/etc/badminton-trend-miner/service.env
+Environment=PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
+ExecStartPre=/opt/badminton-trend-miner/current/.venv/bin/python -m alembic upgrade head
+ExecStart=/opt/badminton-trend-miner/current/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8010 --workers 1
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=45s
+MemoryHigh=280M
+MemoryMax=384M
+CPUQuota=70%
+TasksMax=32
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/badminton-trend-miner
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
