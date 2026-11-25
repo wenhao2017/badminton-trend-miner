@@ -27,7 +27,7 @@
 | `nginx.service` | 公网 80/443 入口。HTTP 跳转到 HTTPS，ACME 校验路径除外。对登录 POST 按来源 IP 和全局频率限速。 |
 | `badminton-trend-miner.service` | 以 `badminton` 用户运行单个 Uvicorn 进程，监听 `127.0.0.1:8010`。同一进程运行 Web、任务队列和调度器。 |
 | SQLite | 启用 WAL 和外键约束，应用启动时由 Alembic 检查并应用迁移。 |
-| `badminton-trend-miner-backup.timer` | 每天北京时间 03:40 后执行 SQLite 在线备份，并复制快照中注册的模型文件，保留最近 14 份。 |
+| `badminton-trend-miner-backup.timer` | 已停用（生产磁盘仅 16 GB，不在服务器上留存自动备份；需要时手动打包拉取到本机 `E:\badminton-trend-miner-backup\`）。 |
 | `badminton-certificate-renew.timer` | 每天检查两次 Let's Encrypt IP 证书。续期成功后验证配置并重载 Nginx。 |
 
 Nginx 站点配置为 `/etc/nginx/sites-available/badminton-dashboard`，限速配置为 `/etc/nginx/conf.d/badminton-login-limits.conf`。证书名称为 `badminton-dashboard-ip`。备份位于生产主机本地。
@@ -99,6 +99,7 @@ PY
 
 ## 部署边界
 
-- 通过独立版本目录部署，切换 `current` 前备份 SQLite 和已注册模型。配置、数据库、模型和备份目录独立于版本目录。
+- **轻量发版优先**：日常代码小改（无依赖变更）可直接将改动文件同步到 `/opt/badminton-trend-miner/current` 后执行 `systemctl restart badminton-trend-miner` 并做 `/health` 校验，无需重建虚拟环境或做本地备份。
+- 需要完整发版或依赖变更时，使用 `deploy/install_release.sh`：默认复用 `/opt/badminton-trend-miner/.venv`（仅 `requirements.txt` 变化时安装依赖），不触发本地备份，自动只保留最近 2 个 release。配置、数据库、模型目录独立于版本目录。
 - Uvicorn 端口保持回环绑定，公网流量经 Nginx。网球生产主机、配置和数据独立管理。
 - 数据库迁移、备份恢复和版本回退详见 [部署与运维手册](deploy/README.md)。

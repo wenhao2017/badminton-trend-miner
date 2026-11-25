@@ -37,29 +37,40 @@ if [[ ! -f "$config/service.env" ]]; then
     chmod 0600 "$config/service.env"
 fi
 
-if ! python3 -m venv "$release/.venv"; then
-    python3 -m venv --without-pip "$release/.venv"
-    bootstrap=$(mktemp)
-    trap 'rm -f "$bootstrap"' EXIT
-    curl --proto '=https' -fsSL https://bootstrap.pypa.io/get-pip.py -o "$bootstrap"
-    "$release/.venv/bin/python" "$bootstrap" --no-cache-dir
+shared_venv="$base/.venv"
+previous=$(readlink -f "$base/current" || true)
+if [[ ! -x "$shared_venv/bin/python" ]]; then
+    if [[ -n "$previous" && -d "$previous/.venv" && ! -L "$previous/.venv" ]]; then
+        mv "$previous/.venv" "$shared_venv"
+        ln -s "$shared_venv" "$previous/.venv"
+    else
+        if ! python3 -m venv "$shared_venv"; then
+            python3 -m venv --without-pip "$shared_venv"
+            bootstrap=$(mktemp)
+            trap 'rm -f "$bootstrap"' EXIT
+            curl --proto '=https' -fsSL https://bootstrap.pypa.io/get-pip.py -o "$bootstrap"
+            "$shared_venv/bin/python" "$bootstrap" --no-cache-dir
+        fi
+    fi
 fi
 
-constraints=()
-if [[ -f "$config/runtime-constraints.txt" ]]; then
-    constraints=(-c "$config/runtime-constraints.txt")
+req_hash=$(sha256sum "$release/requirements.txt" | cut -d ' ' -f 1)
+installed_hash=$(cat "$shared_venv/.requirements.sha256" 2>/dev/null || true)
+if [[ "$req_hash" != "$installed_hash" ]]; then
+    constraints=()
+    if [[ -f "$config/runtime-constraints.txt" ]]; then
+        constraints=(-c "$config/runtime-constraints.txt")
+    fi
+    "$shared_venv/bin/python" -m pip install --no-cache-dir --only-binary=:all: --disable-pip-version-check \
+        "${constraints[@]}" -r "$release/requirements.txt"
+    "$shared_venv/bin/python" -m pip check
+    printf '%s\n' "$req_hash" > "$shared_venv/.requirements.sha256"
+    chmod -R a+rX,go-w "$shared_venv"
 fi
-"$release/.venv/bin/python" -m pip install --no-cache-dir --only-binary=:all: --disable-pip-version-check \
-    "${constraints[@]}" -r "$release/requirements.txt"
-"$release/.venv/bin/python" -m pip check
+
+ln -s "$shared_venv" "$release/.venv"
 "$release/.venv/bin/python" -m pip freeze > "$release/runtime-versions.txt"
 sha256sum "$archive" | cut -d ' ' -f 1 > "$release/source.sha256"
-chmod -R a+rX,go-w "$release/.venv"
-
-previous=$(readlink -f "$base/current" || true)
-if [[ -n "$previous" && -d "$previous" ]]; then
-    systemctl start "$service-backup.service"
-fi
 
 activate() {
     local next="$base/.current.$$"
@@ -72,7 +83,7 @@ for unit in "$release"/deploy/systemd/*; do
 done
 activate "$release"
 systemctl daemon-reload
-systemd-analyze verify "$service.service" "$service-backup.service" "$service-backup.timer"
+systemd-analyze verify "$service.service"
 
 if ! { systemctl restart "$service.service" &&
        curl --retry 30 --retry-delay 1 --retry-connrefused -fsS http://127.0.0.1:8010/health &&
@@ -88,6 +99,5 @@ if ! { systemctl restart "$service.service" &&
 fi
 
 systemctl enable "$service.service"
-systemctl start "$service-backup.service"
-systemctl enable --now "$service-backup.timer"
+(cd "$base/releases" && ls -1dt 20* | tail -n +3 | xargs -r rm -rf)
 printf '\nActive release: %s\n' "$release"
