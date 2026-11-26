@@ -8,6 +8,7 @@ User=badminton
 Group=badminton
 WorkingDirectory=/opt/badminton-trend-miner/current
 EnvironmentFile=/etc/badminton-trend-miner/service.env
+Environment=SPORTRADAR_KEY_SOURCE=environment
 Environment=PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
 ExecStartPre=/opt/badminton-trend-miner/current/.venv/bin/python -m alembic upgrade head
 ExecStart=/opt/badminton-trend-miner/current/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8010 --workers 1

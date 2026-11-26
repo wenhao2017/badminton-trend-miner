@@ -5,6 +5,8 @@ import os
 import threading
 from typing import List
 from dotenv import dotenv_values, set_key
+from sqlalchemy import func, update
+from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session
 from app.config import settings
 from app.db.models import ApiKeyUsage
@@ -50,6 +52,8 @@ class SportradarKeyManager:
 
     @property
     def keys(self) -> List[str]:
+        if settings.SPORTRADAR_KEY_SOURCE == "environment":
+            return settings.api_keys_list
         # Docker's environment stays stale after .env changes. The mounted file
         # is authoritative so a second process/restart cannot revive deleted keys.
         if Path(".env").exists():
@@ -67,8 +71,17 @@ class SportradarKeyManager:
         if key not in self.keys:
             raise KeysExhaustedException("Sportradar key is no longer configured.")
         key_hash = hash_api_key(key)
-        usage = self.repo.get_by_key_hash(db, key_hash)
+        environment_managed = settings.SPORTRADAR_KEY_SOURCE == "environment"
+        usage = self.repo.get_by_key_hash(db, key_hash, refresh=environment_managed)
         if not usage:
+            if environment_managed:
+                db.execute(insert(ApiKeyUsage).values(
+                    provider="sportradar", api_key_hash=key_hash,
+                    quota_limit=settings.SPORTRADAR_KEY_TOTAL_QUOTA, quota_used=0,
+                    quota_remaining=settings.SPORTRADAR_KEY_TOTAL_QUOTA,
+                ).on_conflict_do_nothing(index_elements=[ApiKeyUsage.api_key_hash]))
+                db.commit()
+                return self.repo.get_by_key_hash(db, key_hash)
             usage = ApiKeyUsage(
                 provider="sportradar",
                 api_key_hash=key_hash,
@@ -98,7 +111,8 @@ class SportradarKeyManager:
         for key in keys:
             usage = self._get_or_create_usage(db, key)
             if usage.quota_remaining <= 0:
-                self.mark_exhausted(db, key)
+                if settings.SPORTRADAR_KEY_SOURCE != "environment":
+                    self.mark_exhausted(db, key)
                 continue
             key_usages.append((key, usage))
             
@@ -129,6 +143,14 @@ class SportradarKeyManager:
         if key not in self.keys:
             return  # An in-flight request may finish after another process retired it.
         usage = self._get_or_create_usage(db, key)
+        if settings.SPORTRADAR_KEY_SOURCE == "environment":
+            used = func.min(ApiKeyUsage.quota_limit, ApiKeyUsage.quota_used + increment)
+            db.execute(update(ApiKeyUsage).where(
+                ApiKeyUsage.id == usage.id, ApiKeyUsage.quota_remaining > 0,
+            ).values(quota_used=used, quota_remaining=ApiKeyUsage.quota_limit - used,
+                     last_request_at=datetime.utcnow()))
+            db.commit()
+            return
         usage.quota_used += increment
         usage.quota_remaining = max(0, usage.quota_limit - usage.quota_used)
         usage.last_request_at = datetime.utcnow()
@@ -150,6 +172,12 @@ class SportradarKeyManager:
         """Reset usage of all keys."""
         for key in self.keys:
             usage = self._get_or_create_usage(db, key)
+            if settings.SPORTRADAR_KEY_SOURCE == "environment":
+                db.execute(update(ApiKeyUsage).where(
+                    ApiKeyUsage.id == usage.id, ApiKeyUsage.quota_remaining > 0,
+                ).values(quota_used=0, quota_remaining=ApiKeyUsage.quota_limit, cooldown_until=None))
+                db.commit()
+                continue
             usage.quota_used = 0
             usage.quota_remaining = usage.quota_limit
             usage.cooldown_until = None
@@ -157,7 +185,18 @@ class SportradarKeyManager:
         logger.info("All API keys quota counts reset.")
 
     def mark_exhausted(self, db: Session, key: str) -> None:
-        """Retire configuration before deleting usage, so it cannot reset to 1000."""
+        """Persist retirement in SQLite for environment-managed credentials."""
+        if settings.SPORTRADAR_KEY_SOURCE == "environment":
+            if key not in self.keys:
+                return
+            usage = self._get_or_create_usage(db, key)
+            retired = db.execute(update(ApiKeyUsage).where(
+                ApiKeyUsage.id == usage.id, ApiKeyUsage.quota_remaining > 0,
+            ).values(quota_remaining=0, quota_used=ApiKeyUsage.quota_limit))
+            db.commit()
+            if retired.rowcount:
+                logger.info("Retired exhausted Sportradar key in SQLite.")
+            return
         usage = self.repo.get_by_key_hash(db, hash_api_key(key))
         if usage:
             usage.quota_remaining = 0
@@ -173,8 +212,7 @@ class SportradarKeyManager:
     def verify_and_cleanup_keys(self, db: Session, force_remote: bool = False) -> dict:
         """
         Verify all API keys currently configured and in the database.
-        Deletes exhausted or abnormal keys from the database, and physically
-        removes them from the .env configuration file so they won't be reused.
+        Environment-managed keys retain their terminal usage rows across restarts.
         """
         import httpx
         
@@ -187,6 +225,7 @@ class SportradarKeyManager:
         deleted_keys_log = []
         keys_to_remove_from_config = set()
         rows_to_delete = []
+        retired_count = 0
         
         # Estimate expected consumption if remote check is requested
         if force_remote:
@@ -197,6 +236,8 @@ class SportradarKeyManager:
         for usage in usages:
             h = usage.api_key_hash
             raw_key = configured_keys_map.get(h)
+            if settings.SPORTRADAR_KEY_SOURCE == "environment" and usage.quota_remaining <= 0:
+                continue
             
             # Case A: Key is in DB but no longer in settings config (.env)
             if not raw_key:
@@ -230,6 +271,11 @@ class SportradarKeyManager:
                     logger.warning(f"Failed to remotely test key {mask_key(raw_key)}: {type(e).__name__}")
                     
             if is_exhausted:
+                if settings.SPORTRADAR_KEY_SOURCE == "environment":
+                    self.mark_exhausted(db, raw_key)
+                    retired_count += 1
+                    deleted_keys_log.append(f"Retired: {mask_key(raw_key)} ({reason})")
+                    continue
                 logger.warning(f"Key {mask_key(raw_key)} is exhausted/invalid ({reason}). Deleting from DB and removing from config...")
                 rows_to_delete.append(usage)
                 deleted_keys_log.append(f"Exhausted: {mask_key(raw_key)} ({reason})")
@@ -242,10 +288,13 @@ class SportradarKeyManager:
             db.delete(usage)
         db.commit()
             
-        return {
-            "deleted_count": len(deleted_keys_log),
+        result = {
+            "deleted_count": len(rows_to_delete),
             "details": deleted_keys_log
         }
+        if settings.SPORTRADAR_KEY_SOURCE == "environment":
+            result["retired_count"] = retired_count
+        return result
 
     def _remove_keys_from_env_file(self, keys_to_remove: set) -> None:
         with _key_config_lock():

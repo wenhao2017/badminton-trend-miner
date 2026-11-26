@@ -31,6 +31,8 @@ systemctl start badminton-trend-miner-backup.service
 
 Sportradar key 写入 `/etc/badminton-trend-miner/service.env` 中的 `SPORTRADAR_API_KEYS=`，按订阅类型填写 `SPORTRADAR_ACCESS_LEVEL`，然后重启 `badminton-trend-miner`。先保持自动监控、正式 S 和通知关闭，通过手动导入确认目标赛事的实时与历史逐分覆盖。
 
+生产 systemd 单元使用 `SPORTRADAR_KEY_SOURCE=environment`。当本地额度用尽或 Sportradar 明确拒绝密钥时，SQLite 保留该密钥哈希的零额度记录，轮询立即跳过它。这个状态跨重启保留，密钥配置继续由运维管理。添加新密钥使用新的凭据，保留零额度记录以避免旧密钥再次进入轮换。
+
 备份使用 SQLite 的在线备份接口，包含该数据库快照已注册的模型。备份与原数据库都在同一台主机。恢复前停止应用，先保存现有数据库和模型，再将选定备份中的 SQLite 文件和相应模型一起恢复到状态目录。恢复时须在服务停止后移走旧数据库的 SQLite WAL、SHM 文件，并检查恢复文件归属 `badminton:badminton`、数据库完整性和迁移版本，再启动应用。
 
 ## 公网证书

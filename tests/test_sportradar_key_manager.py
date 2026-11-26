@@ -218,3 +218,57 @@ def test_remote_cleanup_does_not_delete_rate_limited_keys(db_session, monkeypatc
     assert manager.keys == ["limited"]
     assert db_session.query(ApiKeyUsage).count() == 1
 
+
+def test_environment_rotation_skips_zero_quota_across_sessions(db_session, monkeypatch, tmp_path):
+    from sqlalchemy.orm import Session
+
+    monkeypatch.setattr(settings, "SPORTRADAR_KEY_SOURCE", "environment")
+    monkeypatch.setattr(settings, "SPORTRADAR_API_KEYS", "old,next")
+    env = tmp_path / ".env"
+    env.write_text("SPORTRADAR_API_KEYS=stale\n", encoding="utf-8")
+    manager = SportradarKeyManager()
+    assert manager.get_active_key(db_session) == "old"
+    manager.record_usage(db_session, "old", increment=1000)
+
+    with Session(db_session.bind) as restarted_db:
+        restarted = SportradarKeyManager()
+        assert restarted.get_active_key(restarted_db) == "next"
+        restarted.record_usage(restarted_db, "old")
+        restarted.reset_quotas(restarted_db)
+        restarted.verify_and_cleanup_keys(restarted_db)
+        assert restarted.repo.get_by_key_hash(restarted_db, hash_api_key("old")).quota_remaining == 0
+        assert restarted.get_active_key(restarted_db) == "next"
+
+    assert env.read_text(encoding="utf-8") == "SPORTRADAR_API_KEYS=stale\n"
+    assert not (tmp_path / ".env.keys.lock").exists()
+
+
+@pytest.mark.parametrize(("status", "body"), [(403, "invalid key"), (429, "quota exceeded")])
+def test_environment_provider_rejection_rotates_within_request(db_session, monkeypatch, tmp_path, status, body):
+    import httpx
+    from app.api_clients.sportradar_client import SportradarClient
+
+    monkeypatch.setattr(settings, "SPORTRADAR_KEY_SOURCE", "environment")
+    monkeypatch.setattr(settings, "SPORTRADAR_API_KEYS", "spent,rejected,usable")
+    monkeypatch.setattr(settings, "SPORTRADAR_ENABLE_CACHE", False)
+    monkeypatch.setattr(settings, "SPORTRADAR_KEY_TOTAL_QUOTA", 1)
+    client = SportradarClient()
+    client.key_manager.record_usage(db_session, "spent")
+    calls = []
+
+    def respond(request):
+        key = request.headers["x-api-key"]
+        calls.append(key)
+        if key == "rejected":
+            return httpx.Response(status, text=body)
+        return httpx.Response(200, json={"summaries": []})
+
+    http_client = httpx.Client
+    monkeypatch.setattr("app.api_clients.sportradar_client.httpx.Client",
+                        lambda **kwargs: http_client(transport=httpx.MockTransport(respond), **kwargs))
+    assert client.get(db_session, "/en/schedules/live/summaries.json") == '{"summaries":[]}'
+    assert calls == ["rejected", "usable"]
+    assert {usage.quota_remaining for usage in db_session.query(ApiKeyUsage)} == {0}
+    assert not (tmp_path / ".env").exists()
+    assert not (tmp_path / ".env.keys.lock").exists()
+

@@ -1144,7 +1144,7 @@ def web_action_keys_cleanup(force_remote: bool = False, db: Session = Depends(ge
 
 @router.post("/web/api/actions/keys-add")
 def web_action_keys_add(payload: AddKeysRequest, db: Session = Depends(get_db)) -> Dict[str, Any]:
-    if not settings.WEB_MANAGE_SPORTRADAR_KEYS:
+    if not settings.WEB_MANAGE_SPORTRADAR_KEYS or settings.SPORTRADAR_KEY_SOURCE == "environment":
         raise HTTPException(status_code=409, detail="API key 由服务器配置管理。")
     from app.api_clients.sportradar_key_manager import SportradarKeyManager
     from loguru import logger

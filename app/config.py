@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     SPORTRADAR_LOCALE: str = "en"
     SPORTRADAR_FORMAT: Literal["json"] = "json"
     SPORTRADAR_API_KEYS: str = ""
+    SPORTRADAR_KEY_SOURCE: Literal["dotenv", "environment"] = "dotenv"
     SPORTRADAR_DAILY_SCHEDULE_ENDPOINT: str = "/{locale}/schedules/{date}/summaries.{format}"
     SPORTRADAR_LIVE_SUMMARIES_ENDPOINT: str = "/{locale}/schedules/live/summaries.{format}"
     SPORTRADAR_MATCH_SUMMARY_ENDPOINT: str = "/{locale}/sport_events/{match_id}/summary.{format}"
@@ -137,6 +138,8 @@ class Settings(BaseSettings):
 
     @property
     def api_keys_list(self) -> List[str]:
+        if self.SPORTRADAR_KEY_SOURCE == "environment":
+            return list(dict.fromkeys(key.strip() for key in self.SPORTRADAR_API_KEYS.split(",") if key.strip()))
         import time
         global _cached_keys, _cached_raw_keys_str, _last_fetch_time
         now = time.time()

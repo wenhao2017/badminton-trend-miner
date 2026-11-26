@@ -96,8 +96,10 @@ class ApiKeyUsageRepository(BaseRepository[ApiKeyUsage]):
     def __init__(self):
         super().__init__(ApiKeyUsage)
 
-    def get_by_key_hash(self, db: Session, key_hash: str) -> Optional[ApiKeyUsage]:
+    def get_by_key_hash(self, db: Session, key_hash: str, *, refresh: bool = False) -> Optional[ApiKeyUsage]:
         stmt = select(ApiKeyUsage).where(ApiKeyUsage.api_key_hash == key_hash)
+        if refresh:
+            stmt = stmt.execution_options(populate_existing=True)
         return db.scalars(stmt).first()
 
 class PlayerProfileRepository(BaseRepository[PlayerProfile]):
