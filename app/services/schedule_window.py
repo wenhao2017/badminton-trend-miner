@@ -6,6 +6,7 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.db.models import Match
+from app.services.signal_admission import is_event_excluded
 from app.utils.sportradar_event import is_womens_singles_event, is_singles_event
 
 TERMINAL = {"ended", "closed", "completed", "cancelled", "abandoned", "retired", "walkover"}
@@ -95,7 +96,7 @@ class ScheduleWindow:
                         raise ValueError("Schedule response has no entries field")
                     for item in data.get("summaries", data.get("schedules", [])):
                         event = item.get("sport_event", {})
-                        if is_womens_singles_event(event) and is_singles_event(event):
+                        if is_womens_singles_event(event) and is_singles_event(event) and not is_event_excluded(event):
                             if not parse_time(event.get("start_time")):
                                 raise ValueError("Schedule entry has no valid start time")
                             entries[event["id"]] = item

@@ -12,7 +12,7 @@ from app.services.bwf_candidate import start_markers
 from app.services.historical_importer import HistoricalImporter
 from app.services.official_s import process_official_batch
 from app.services.replay_engine import ReplayEngine
-from app.services.signal_admission import is_signal_excluded
+from app.services.signal_admission import is_event_excluded, is_signal_excluded
 from app.services.signal_engine import SignalEngine, signal_entry_allowed
 from app.services.signal_recommendation import (
     ACTIVE_MATCH_STATUSES, COMPLETED_MATCH_STATUSES, TERMINAL_MATCH_STATUSES,
@@ -166,7 +166,7 @@ class LiveMonitor:
             active, polled, errors, alerts = set(), [], 0, 0
             for summary in payload["summaries"]:
                 event = summary.get("sport_event") or {}
-                if not is_womens_singles_event(event) or not event.get("id"):
+                if not is_womens_singles_event(event) or not event.get("id") or is_event_excluded(event):
                     continue
                 if event["id"] in active:
                     continue

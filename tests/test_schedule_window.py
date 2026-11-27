@@ -58,11 +58,16 @@ def test_schedule_error_keeps_discovery_on_and_throttles_retry():
 def test_schedule_filters_singles_and_reloads_three_utc_dates(db_session):
     w=ScheduleWindow(); api=Mock()
     valid=entry(at(4))
-    valid["sport_event"].update(id="one",sport_event_context={"sport":{"id":"sr:sport:31"},"competition":{"type":"singles","gender":"women"}})
-    api.get_daily_schedule.return_value={"summaries":[valid]}
+    valid["sport_event"].update(id="one",sport_event_context={"sport":{"id":"sr:sport:31"},"competition":{"id":"sr:competition:27256","name":"Syed Modi India International, WS","type":"singles","gender":"women"}})
+    welsh=entry(at(4))
+    welsh["sport_event"].update(id="welsh",sport_event_context={"sport":{"id":"sr:sport:31"},"competition":{"id":"sr:competition:27336","name":"Welsh International Open, WS","type":"singles","gender":"women"}})
+    super100=entry(at(4))
+    super100["sport_event"].update(id="s100",sport_event_context={"sport":{"id":"sr:sport:31"},"competition":{"id":"sr:competition:99999","name":"Odisha Masters Super 100, WS","type":"singles","gender":"women","level":"super 100"}})
+    api.get_daily_schedule.return_value={"summaries":[valid, welsh, super100]}
     assert w.active(db_session,api,at(5))
     assert api.get_daily_schedule.call_count==3
     assert len(w.entries)==1
+    assert w.entries[0]["sport_event"]["id"]=="one"
     w.active(db_session,api,at(5))
     assert api.get_daily_schedule.call_count==3
 
@@ -175,3 +180,60 @@ def test_dst_offsets_and_utc_serialization():
     assert (s_win, e_win) == (datetime(2026, 11, 26, 16, 0), datetime(2026, 11, 27, 16, 0))
     _, s_sum, e_sum = _local_day_utc_range("2026-07-10")
     assert (s_sum, e_sum) == (datetime(2026, 7, 9, 16, 0), datetime(2026, 7, 10, 16, 0))
+
+
+def test_non_world_tour_events_excluded_from_monitor_signals_and_live_board(db_session, monkeypatch):
+    from app.config import settings
+    from app.db.models import Match
+    from app.services.live_monitor import LiveMonitor
+    from app.services.signal_admission import is_event_excluded, is_signal_excluded
+    from app.web.dashboard import web_live_matches
+
+    monkeypatch.setattr(settings, "SPORTRADAR_API_KEYS", "fixture-key")
+    monkeypatch.setattr(settings, "SIGNAL_COMPETITION_IDS", "")
+    monkeypatch.setattr(settings, "DAILY_HISTORY_IMPORT_TIMEZONE", "Asia/Shanghai")
+
+    welsh_summary = {
+        "sport_event": {
+            "id": "sr:sport_event:77065420",
+            "start_time": "2026-11-27T10:40:00+00:00",
+            "sport_event_context": {
+                "sport": {"id": "sr:sport:31"},
+                "competition": {"id": "sr:competition:27336", "name": "Welsh International Open, WS", "type": "singles", "gender": "women"},
+            },
+            "competitors": [
+                {"id": "sr:competitor:w1", "name": "Flynn, Siofra", "qualifier": "home"},
+                {"id": "sr:competitor:w2", "name": "Sobolewska, Joanna", "qualifier": "away"},
+            ],
+        },
+        "sport_event_status": {"status": "live"},
+    }
+    assert is_event_excluded(welsh_summary["sport_event"])
+
+    monitor = LiveMonitor.__new__(LiveMonitor)
+    monitor.live_client = Mock()
+    monitor.live_client.get_live_matches.return_value = {"summaries": [welsh_summary]}
+    monitor.importer = Mock()
+    res = monitor.scan_and_update(db_session)
+    assert res["processed_matches"] == 0
+    monitor.importer.import_match.assert_not_called()
+
+    # Even if a Welsh match already exists in DB, live board and signals exclude it.
+    welsh_row = Match(
+        external_match_id="sr:sport_event:77065420", provider="sportradar",
+        tournament="Welsh International Open, WS", tournament_id="sr:competition:27336",
+        tournament_level=None, match_date=datetime(2026, 11, 27, 10, 40), surface="indoor", status="not_started",
+    )
+    syed_row = Match(
+        external_match_id="sr:sport_event:77212834", provider="sportradar",
+        tournament="Syed Modi India International, WS", tournament_id="sr:competition:27256",
+        tournament_level=None, match_date=datetime(2026, 11, 27, 7, 10), surface="indoor", status="not_started",
+    )
+    db_session.add_all([welsh_row, syed_row])
+    db_session.commit()
+    assert is_signal_excluded(welsh_row)
+    assert not is_signal_excluded(syed_row)
+
+    board = web_live_matches(date="2026-11-27", db=db_session)
+    assert [m["external_match_id"] for m in board["matches"]] == ["sr:sport_event:77212834"]
+    assert board["status_counts"] == {"not_started": 1}

@@ -39,6 +39,7 @@ from app.services.player_behavior_analyzer import PlayerBehaviorAnalyzer
 from app.services.player_pattern_miner import PlayerPatternMiner
 from app.services.player_profile_builder import PlayerProfileBuilder
 from app.services.signal_recommendation import match_direction_result
+from app.services.signal_admission import is_signal_excluded
 from app.services.signal_history_context import player_inactivity_warning
 from app.services.score_display import snapshot_score_before, latest_match_score
 from app.api_clients.sportradar_cache import SportradarCache
@@ -449,7 +450,11 @@ def web_overview(db: Session = Depends(get_db)) -> Dict[str, Any]:
     latest_backtest = db.query(BacktestRun).order_by(BacktestRun.created_at.desc()).first()
     latest_models = db.query(TrendModel).order_by(TrendModel.created_at.desc()).limit(4).all()
     quota = db.query(ApiKeyUsage).order_by(ApiKeyUsage.id.asc()).all()
-    live_matches = db.query(Match).filter(Match.status.in_(ACTIVE_MATCH_STATUSES)).order_by(Match.match_date.desc()).all()
+    live_matches = [
+        m
+        for m in db.query(Match).filter(Match.status.in_(ACTIVE_MATCH_STATUSES)).order_by(Match.match_date.desc()).all()
+        if not is_signal_excluded(m)
+    ]
     return {
         "generated_at": _dt(now),
         "counts": {
@@ -675,18 +680,20 @@ def web_live_matches(date: Optional[str] = None, db: Session = Depends(get_db)) 
     if date_label == _local_day_utc_range()[0]:
         day_filter = or_(day_filter, and_(Match.match_date < day_start,
                                         Match.status.in_(ACTIVE_MATCH_STATUSES)))
-    matches = (
-        db.query(Match)
-        .filter(day_filter)
-        .order_by(Match.tournament.asc(), Match.match_date.asc(), Match.id.asc())
-        .all()
-    )
-    status_rows = (
-        db.query(Match.status, func.count(Match.id))
-        .filter(day_filter)
-        .group_by(Match.status)
-        .all()
-    )
+    matches = [
+        match
+        for match in (
+            db.query(Match)
+            .filter(day_filter)
+            .order_by(Match.tournament.asc(), Match.match_date.asc(), Match.id.asc())
+            .all()
+        )
+        if not is_signal_excluded(match)
+    ]
+    status_counts: Dict[str, int] = {}
+    for match in matches:
+        key = match.status or "unknown"
+        status_counts[key] = status_counts.get(key, 0) + 1
     payload = []
     for match in matches:
         snapshots = (
@@ -706,7 +713,7 @@ def web_live_matches(date: Optional[str] = None, db: Session = Depends(get_db)) 
         "date": date_label,
         "timezone": settings.DAILY_HISTORY_IMPORT_TIMEZONE or "Asia/Shanghai",
         "matches": payload,
-        "status_counts": {status or "unknown": count for status, count in status_rows},
+        "status_counts": status_counts,
         "active_statuses": ACTIVE_MATCH_STATUSES,
         "scheduled_statuses": SCHEDULED_MATCH_STATUSES,
         "completed_statuses": COMPLETED_MATCH_STATUSES,
