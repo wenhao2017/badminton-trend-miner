@@ -86,7 +86,7 @@ def _local_day_utc_range(date_str: Optional[str] = None) -> tuple[str, datetime,
     tz = _display_timezone()
     local_date = _parse_date(date_str).date() if date_str else datetime.now(tz).date()
     local_start = datetime.combine(local_date, time.min, tzinfo=tz)
-    local_end = local_start + timedelta(days=1)
+    local_end = datetime.combine(local_date + timedelta(days=1), time.min, tzinfo=tz)
     return (
         local_date.strftime("%Y-%m-%d"),
         local_start.astimezone(timezone.utc).replace(tzinfo=None),
@@ -94,7 +94,7 @@ def _local_day_utc_range(date_str: Optional[str] = None) -> tuple[str, datetime,
     )
 
 
-def _dt(value: Any, *, naive_as_utc: bool = False) -> Optional[str]:
+def _dt(value: Any, *, naive_as_utc: bool = True) -> Optional[str]:
     if value is None:
         return None
     if isinstance(value, datetime):
@@ -103,6 +103,8 @@ def _dt(value: Any, *, naive_as_utc: bool = False) -> Optional[str]:
                 value = value.replace(tzinfo=timezone.utc)
             else:
                 return value.isoformat()
+        else:
+            value = value.astimezone(timezone.utc)
         return value.isoformat().replace("+00:00", "Z")
     return str(value)
 

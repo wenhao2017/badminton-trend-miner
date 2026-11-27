@@ -10,17 +10,27 @@ def entry(start, status="not_started", end=None):
     return {"sport_event": {"start_time": start.isoformat()},
             "sport_event_status": {"status": status, "end_time": end.isoformat() if end else None}}
 
-def test_whole_day_span_without_tail(monkeypatch):
+def test_per_match_window_sleeps_during_cross_continent_gaps(monkeypatch):
     from app.config import settings
-    monkeypatch.setattr(settings, "DAILY_HISTORY_IMPORT_TIMEZONE", "UTC")
-    w=ScheduleWindow()
-    w.entries=[entry(at(4), "closed", at(5)), entry(at(22), "closed", at(23))]
-    assert not w.evaluate(at(3))
-    assert w.evaluate(at(4))
-    assert w.evaluate(at(15))
-    assert not w.evaluate(at(23))
-    assert not w.evaluate(at(1,11))
-    assert not w.evaluate(at(3,11))
+    monkeypatch.setattr(settings, "DAILY_HISTORY_IMPORT_TIMEZONE", "Asia/Shanghai")
+    w = ScheduleWindow()
+    # Early-morning European match finished by 04:05 CST (20:05 UTC prev day),
+    # next Asian match starts at 15:10 CST (07:10 UTC).
+    w.entries = [
+        entry(datetime(2026, 11, 26, 16, 10, tzinfo=timezone.utc), "closed",
+              datetime(2026, 11, 26, 17, 0, tzinfo=timezone.utc)),
+        entry(datetime(2026, 11, 27, 7, 10, tzinfo=timezone.utc), "not_started"),
+    ]
+    # Active during the earlier match interval
+    assert w.evaluate(datetime(2026, 11, 26, 16, 30, tzinfo=timezone.utc))
+    # Sleeping during the long empty gap (09:45 CST = 01:45 UTC)
+    assert not w.evaluate(datetime(2026, 11, 27, 1, 45, tzinfo=timezone.utc))
+    # Sleeping 21 minutes before next match
+    assert not w.evaluate(datetime(2026, 11, 27, 6, 49, tzinfo=timezone.utc))
+    # Wakes up 20 minutes before next match (14:50 CST = 06:50 UTC)
+    assert w.evaluate(datetime(2026, 11, 27, 6, 50, tzinfo=timezone.utc))
+    # Remains active if start time passed and match is still not finished
+    assert w.evaluate(datetime(2026, 11, 27, 7, 30, tzinfo=timezone.utc))
 
 def test_delay_never_closes_but_finish_has_no_tail():
     w=ScheduleWindow()
@@ -118,3 +128,50 @@ def test_cross_midnight_unfinished_match_stays_active_until_finished():
     assert not w.evaluate(at(4,11))
     assert not w.evaluate(at(5,11))
     assert w.status()["tail_hours"] == 0
+
+
+def test_schedule_sync_populates_upcoming_matches_for_live_board(db_session, monkeypatch):
+    from app.config import settings
+    from app.web.dashboard import web_live_matches
+    monkeypatch.setattr(settings, "DAILY_HISTORY_IMPORT_TIMEZONE", "Asia/Shanghai")
+    w = ScheduleWindow()
+    api = Mock()
+    scheduled_match = {
+        "sport_event": {
+            "id": "sr:sport_event:77212834",
+            "start_time": "2026-11-27T07:10:00+00:00",
+            "sport_event_context": {
+                "sport": {"id": "sr:sport:31"},
+                "competition": {"id": "sr:competition:27256", "name": "Syed Modi India International, WS", "type": "singles", "gender": "women", "level": "super 300"},
+                "round": {"name": "quarterfinal"},
+            },
+            "competitors": [
+                {"id": "sr:competitor:1", "name": "Gunji, Riko", "qualifier": "home"},
+                {"id": "sr:competitor:2", "name": "Mir, Tasnim", "qualifier": "away"},
+            ],
+        },
+        "sport_event_status": {"status": "not_started", "match_status": "not_started"},
+    }
+    api.get_daily_schedule.return_value = {"summaries": [scheduled_match]}
+    now = datetime(2026, 11, 27, 1, 45, tzinfo=timezone.utc)
+    assert not w.active(db_session, api, now)
+    board = web_live_matches(date="2026-11-27", db=db_session)
+    assert len(board["matches"]) == 1
+    assert board["matches"][0]["status"] == "not_started"
+    assert board["matches"][0]["match_date"] == "2026-11-27T07:10:00Z"
+
+
+def test_dst_offsets_and_utc_serialization():
+    from app.services.schedule_window import parse_time
+    from app.web.dashboard import _dt, _local_day_utc_range
+    # Summer CEST (+02:00) vs Winter CET (+01:00) normalize to exact UTC instants
+    assert parse_time("2026-07-10T14:00:00+02:00") == datetime(2026, 7, 10, 12, 0, tzinfo=timezone.utc)
+    assert parse_time("2026-11-27T14:00:00+01:00") == datetime(2026, 11, 27, 13, 0, tzinfo=timezone.utc)
+    # Naive UTC datetimes from SQLite always serialize with Z suffix
+    assert _dt(datetime(2026, 11, 27, 7, 10, 0)) == "2026-11-27T07:10:00Z"
+    assert _dt(datetime(2026, 7, 10, 14, 0, tzinfo=timezone(timedelta(hours=2)))) == "2026-07-10T12:00:00Z"
+    # Asia/Shanghai day range is strictly 16:00Z previous day to 16:00Z current day in both summer & winter
+    _, s_win, e_win = _local_day_utc_range("2026-11-27")
+    assert (s_win, e_win) == (datetime(2026, 11, 26, 16, 0), datetime(2026, 11, 27, 16, 0))
+    _, s_sum, e_sum = _local_day_utc_range("2026-07-10")
+    assert (s_sum, e_sum) == (datetime(2026, 7, 9, 16, 0), datetime(2026, 7, 10, 16, 0))

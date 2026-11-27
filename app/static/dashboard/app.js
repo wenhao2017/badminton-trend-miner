@@ -153,33 +153,64 @@ function pct(value) {
   return `${(n * 100).toFixed(1)}%`;
 }
 
-function dateInputValue(offsetDays = 0) {
-  const d = new Date();
-  d.setDate(d.getDate() + offsetDays);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
+const SHANGHAI_TZ = "Asia/Shanghai";
 
-function time(value) {
-  if (!value) return "-";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return fmt(value);
-  return d.toLocaleString("zh-CN", { hour12: false });
-}
+const shanghaiDateFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: SHANGHAI_TZ,
+  year: "numeric", month: "2-digit", day: "2-digit",
+});
 
-const signalPublicationFormatter = new Intl.DateTimeFormat("zh-CN", {
-  timeZone: "Asia/Shanghai", hourCycle: "h23",
+const shanghaiDateTimeFormatter = new Intl.DateTimeFormat("zh-CN", {
+  timeZone: SHANGHAI_TZ, hourCycle: "h23",
   year: "numeric", month: "2-digit", day: "2-digit",
   hour: "2-digit", minute: "2-digit", second: "2-digit",
 });
 
+const shanghaiShortDateTimeFormatter = new Intl.DateTimeFormat("zh-CN", {
+  timeZone: SHANGHAI_TZ, hourCycle: "h23",
+  year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit",
+});
+
+const shanghaiClockFormatter = new Intl.DateTimeFormat("zh-CN", {
+  timeZone: SHANGHAI_TZ, hourCycle: "h23",
+  hour: "2-digit", minute: "2-digit", second: "2-digit",
+});
+
+function parseUtcTimestamp(value) {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  const normalized = raw.replace(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})/, "$1T$2");
+  const iso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(normalized) ? `${normalized}Z` : normalized;
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function dateInputValue(offsetDays = 0) {
+  const target = new Date(Date.now() + offsetDays * 86400 * 1000);
+  return shanghaiDateFormatter.format(target);
+}
+
+function time(value) {
+  if (!value) return "-";
+  const d = parseUtcTimestamp(value);
+  if (!d) return fmt(value);
+  return shanghaiDateTimeFormatter.format(d);
+}
+
+function matchTime(value) {
+  if (!value) return "-";
+  const d = parseUtcTimestamp(value);
+  if (!d) return fmt(value);
+  return shanghaiShortDateTimeFormatter.format(d);
+}
+
 function signalPublicationTime(value) {
   if (!value) return "-";
-  const timestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(value) ? value + "Z" : value;
-  const date = new Date(timestamp);
-  return Number.isNaN(date.getTime()) ? "-" : signalPublicationFormatter.format(date);
+  const date = parseUtcTimestamp(value);
+  return date ? shanghaiDateTimeFormatter.format(date) : "-";
 }
 
 function levelBadge(level, warning = null) {
@@ -1042,8 +1073,8 @@ async function renderSignals() {
       list.innerHTML = data.signals.length ? signalsTable(data.signals, true, { pageKey, pagination: data.pagination }) : empty("暂无信号。未确认评分不会作为推荐显示。");
       bindPagination(list, load);
       syncIcons();
-      lastUpdated = new Date().toLocaleTimeString("zh-CN", { hour12: false });
-      refreshStatus.textContent = `最近更新：${lastUpdated} · 每15秒自动同步`;
+      lastUpdated = shanghaiClockFormatter.format(new Date());
+      refreshStatus.textContent = `最近更新：北京时间 ${lastUpdated} · 每15秒自动同步`;
     } catch (err) {
       if (!disposed) refreshStatus.textContent = `${lastUpdated ? `最近更新：${lastUpdated} · ` : ""}同步失败，将自动重试`;
     } finally {
@@ -1133,7 +1164,7 @@ async function renderSignalDetail(id) {
 }
 
 async function renderLive() {
-  setHeader("今日比赛", "当天比赛及跨日未完赛比赛；暂停／中断仍持续追踪");
+  setHeader("今日比赛", "按北京时间（Asia/Shanghai，无夏令时）展示当天全部赛程及跨日未完赛比赛；暂停／中断仍持续追踪");
   const data = await api("/web/api/matches/live");
   const groups = groupMatchesByTournament(data.matches || []);
   const activeStatuses = data.active_statuses || ["live", "suspended", "interrupted", "delayed"];
@@ -1149,7 +1180,7 @@ async function renderLive() {
   }
   view.innerHTML = `
     <div class="day-match-summary">
-      ${metric("日期", fmt(data.date))}
+      ${metric("日期（北京时间）", fmt(data.date))}
       ${metric("全部比赛", fmt((data.matches || []).length, "0"))}
       ${metric("未开始", fmt(scheduledTotal, "0"))}
       ${metric("进行中", fmt(activeTotal, "0"))}
@@ -1188,7 +1219,7 @@ async function renderLive() {
                   return `
                     <article class="live-card ${matchStatusBucket(m.status)}">
                       <div class="live-card-head">
-                        <span>${time(m.match_date)}${m.carried_over ? " · 跨日未完赛" : ""}</span>
+                        <span>北京时间 ${matchTime(m.match_date)}${m.carried_over ? " · 跨日未完赛" : ""}</span>
                         <strong>${zhStatus(m.status)}</strong>
                       </div>
                       <div class="live-card-title"><a class="match-link" href="#match/${m.id}">${matchName(m)}</a></div>
